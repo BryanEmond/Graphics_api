@@ -61,16 +61,12 @@ namespace graphics_api{
             return attributeDescription;
         }
     };
-//    const std::vector<Vertex> vertices = {
-//            {{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-//            {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
-//            {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}
-//    };
-//    const std::vector<Vertex> vertices = {
-//            {{0.0f, -0.5f}, {1.0f, 1.0f, 1.0f}},
-//            {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
-//            {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}
-//    };
+    struct UniformBufferObject{
+        glm::mat4 model;
+        glm::mat4 view;
+        glm::mat4 proj;
+    };
+
     const std::vector<Vertex> vertices = {
             {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
             {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
@@ -109,7 +105,11 @@ namespace graphics_api{
         void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory);
         void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
         void createIndexBuffer();
-
+        void createDescriptorSetLayout();
+        void createUniformBuffers();
+        void updateUniformBuffer(uint32_t currentImage);
+        void createDescriptorPool();
+        void createDescriptorSets();
 
         bool isDeviceSuitable(VkPhysicalDevice device);
         bool checkDeviceExtensionSupport(VkPhysicalDevice device);
@@ -127,37 +127,10 @@ namespace graphics_api{
         VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities);
         VkShaderModule createShaderModule(const std::vector<char>& code);
 
-        static std::vector<char> readFile(const std::string& filename){
-            std::ifstream file(filename, std::ios::ate | std::ios::binary);
-
-            if (!file.is_open()) {
-                throw std::runtime_error("failed to open file!");
-            }
-
-            size_t fileSize = (size_t) file.tellg();
-            std::vector<char> buffer(fileSize);
-
-            file.seekg(0);
-            file.read(buffer.data(), fileSize);
-
-            file.close();
-
-            return buffer;
-        }
-        static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData) {
-            std::cerr << "validation layer: " << pCallbackData->pMessage << std::endl;
-            return VK_FALSE;
-        }
-        static VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger) {
-            auto func = (PFN_vkCreateDebugUtilsMessengerEXT) vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
-            if(func != nullptr) return func(instance, pCreateInfo, pAllocator, pDebugMessenger);
-            else return VK_ERROR_EXTENSION_NOT_PRESENT;
-        }
-        static void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger, const VkAllocationCallbacks* pAllocator) {
-            auto func = (PFN_vkDestroyDebugUtilsMessengerEXT) vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
-            if (func != nullptr) func(instance, debugMessenger, pAllocator);
-
-        }
+        static std::vector<char> readFile(const std::string& filename);
+        static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData);
+        static VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger);
+        static void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger, const VkAllocationCallbacks* pAllocator);
 
         VkInstance instance;
         VkDevice device;
@@ -177,7 +150,13 @@ namespace graphics_api{
         VkDeviceMemory vertexBufferMemory;
         VkBuffer indexBuffer;
         VkDeviceMemory indexBufferMemory;
+        VkDescriptorSetLayout descriptorSetLayout;
+        VkDescriptorPool descriptorPool;
 
+        std::vector<VkDescriptorSet> descriptorSets;
+        std::vector<void*> uniformBuffersMapped;
+        std::vector<VkBuffer> uniformBuffers;
+        std::vector<VkDeviceMemory> uniformBuffersMemory;
         std::vector<VkCommandBuffer> commandBuffers;
         std::vector<VkSemaphore> imageAvailableSemaphores;
         std::vector<VkSemaphore> renderFinishedSemaphores;
