@@ -1,4 +1,6 @@
 #define GLFW_INCLUDE_VULKAN
+#define GLM_FORCE_RADIANS
+
 #include "vulkan_api.h"
 #include <GLFW/glfw3.h>
 #include <cstring>
@@ -6,6 +8,9 @@
 #include <cstdint>
 #include <limits>
 #include <algorithm>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <chrono>
 
 namespace graphics_api{
     void vulkan_api::run(){
@@ -17,14 +22,24 @@ namespace graphics_api{
     void vulkan_api::cleanup() {
         cleanupSwapChain();
 
+        vkDestroyPipeline(device, graphicsPipeline, nullptr);
+        vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+        vkDestroyRenderPass(device, renderPass, nullptr);
+
+        for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++){
+            vkDestroyBuffer(device, uniformBuffers[i], nullptr);
+            vkFreeMemory(device,uniformBuffersMemory[i], nullptr);
+        }
+
+        vkDestroyDescriptorPool(device, descriptorPool, nullptr);
+
+        vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
+
         vkDestroyBuffer(device, indexBuffer, nullptr);
         vkFreeMemory(device, indexBufferMemory, nullptr);
 
         vkDestroyBuffer(device, vertexBuffer, nullptr);
         vkFreeMemory(device, vertexBufferMemory, nullptr);
-
-        vkDestroyPipeline(device, graphicsPipeline, nullptr);
-        vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
 
         for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++){
             vkDestroySemaphore(device, imageAvailableSemaphores[i], nullptr);
@@ -54,11 +69,15 @@ namespace graphics_api{
         createSwapChain();
         createImageViews();
         createRenderPass();
+        createDescriptorSetLayout();
         createGraphicsPipeline();
         createFramebuffers();
         createCommandPool();
         createVertexBuffer();
         createIndexBuffer();
+        createUniformBuffers();
+        createDescriptorPool();
+        createDescriptorSets();
         createCommandBuffers();
         createSyncObjects();
     }
@@ -310,7 +329,7 @@ namespace graphics_api{
         rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
         rasterizer.lineWidth = 1.0f;
         rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
-        rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
+        rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
         rasterizer.depthBiasEnable = VK_FALSE;
 
         VkPipelineMultisampleStateCreateInfo multisampling{};
@@ -344,8 +363,8 @@ namespace graphics_api{
 
         VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
         pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        pipelineLayoutInfo.setLayoutCount = 0;
-        pipelineLayoutInfo.pushConstantRangeCount = 0;
+        pipelineLayoutInfo.setLayoutCount = 1;
+        pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
 
         if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS)
             throw std::runtime_error("failed to create pipeline layout!");
@@ -498,6 +517,8 @@ namespace graphics_api{
 
         vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT16);
 
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0,nullptr);
+
         vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t >(indices.size()), 1, 0, 0,0);
 
         vkCmdEndRenderPass(commandBuffer);
@@ -517,6 +538,8 @@ namespace graphics_api{
             return;
         }else if(result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
             throw std::runtime_error("failed to acquire swap chain image!");
+
+        updateUniformBuffer(currentFrame);
 
         vkResetFences(device, 1, &inFlightFences[currentFrame]);
 
@@ -607,7 +630,6 @@ namespace graphics_api{
         for(size_t i = 0; i < swapChainImageViews.size(); i++){
             vkDestroyImageView(device, swapChainImageViews[i], nullptr);
         }
-
         vkDestroySwapchainKHR(device, swapChain, nullptr);
     }
     void vulkan_api::createVertexBuffer(){
@@ -706,6 +728,98 @@ namespace graphics_api{
 
         vkDestroyBuffer(device, stagingBuffer, nullptr);
         vkFreeMemory(device, stagingBufferMemory, nullptr);
+    }
+    void vulkan_api::createDescriptorSetLayout() {
+        VkDescriptorSetLayoutBinding uboLayoutBinding{};
+        uboLayoutBinding.binding = 0;
+        uboLayoutBinding.descriptorCount = 1;
+        uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        uboLayoutBinding.pImmutableSamplers = nullptr;
+        uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+        VkDescriptorSetLayoutCreateInfo layoutCreateInfo{};
+        layoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        layoutCreateInfo.bindingCount = 1;
+        layoutCreateInfo.pBindings = &uboLayoutBinding;
+
+        if(vkCreateDescriptorSetLayout(device, &layoutCreateInfo, nullptr, &descriptorSetLayout) != VK_SUCCESS)
+            throw std::runtime_error("failed to create descriptor set layout");
+    }
+    void vulkan_api::createUniformBuffers() {
+        VkDeviceSize bufferSize = sizeof(UniformBufferObject);
+
+        uniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+        uniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
+        uniformBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
+
+        for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++){
+            createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, uniformBuffers[i], uniformBuffersMemory[i]);
+
+            vkMapMemory(device, uniformBuffersMemory[i],0,bufferSize, 0, &uniformBuffersMapped[i]);
+        }
+    }
+    void vulkan_api::updateUniformBuffer(uint32_t currentImage){
+        static auto startTime = std::chrono::high_resolution_clock::now();
+
+        auto currentTime = std::chrono::high_resolution_clock::now();
+        float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
+
+        UniformBufferObject ubo{};
+        ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f,0.0f,1.0f));
+        ubo.view = glm::lookAt(glm::vec3(2.0f,2.0f,2.0f), glm::vec3(0.0f,0.0f,0.0f),glm::vec3(0.0f,0.0f,1.0f));
+        ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width/(float)swapChainExtent.height, 0.1f, 10.0f);
+        ubo.proj[1][1] *= -1;
+
+        memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
+    }
+    void vulkan_api::createDescriptorPool(){
+        VkDescriptorPoolSize  poolSize{};
+        poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        poolSize.descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+
+        VkDescriptorPoolCreateInfo poolCreateInfo{};
+        poolCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        poolCreateInfo.poolSizeCount = 1;
+        poolCreateInfo.pPoolSizes = &poolSize;
+        poolCreateInfo.maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+
+        if(vkCreateDescriptorPool(device, &poolCreateInfo, nullptr, &descriptorPool) != VK_SUCCESS)
+            throw std::runtime_error("failed to create descriptor pool");
+
+    }
+    void vulkan_api::createDescriptorSets(){
+        std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, descriptorSetLayout);
+        VkDescriptorSetAllocateInfo allocateInfo{};
+        allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        allocateInfo.descriptorPool = descriptorPool;
+        allocateInfo.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+        allocateInfo.pSetLayouts = layouts.data();
+
+        descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+        if(vkAllocateDescriptorSets(device, &allocateInfo, descriptorSets.data()) != VK_SUCCESS)
+            throw std::runtime_error("failed to allocate descriptor sets");
+
+        for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++){
+            VkDescriptorBufferInfo bufferInfo{};
+            bufferInfo.buffer = uniformBuffers[i];
+            bufferInfo.offset = 0;
+            bufferInfo.range = sizeof(UniformBufferObject);
+
+            VkWriteDescriptorSet descriptorSet{};
+            descriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorSet.dstSet = descriptorSets[i];
+            descriptorSet.dstBinding = 0;
+            descriptorSet.dstArrayElement = 0;
+            descriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            descriptorSet.descriptorCount = 1;
+            descriptorSet.pBufferInfo = &bufferInfo;
+            descriptorSet.pImageInfo = nullptr;
+            descriptorSet.pTexelBufferView = nullptr;
+
+            vkUpdateDescriptorSets(device, 1 , &descriptorSet, 0, nullptr);
+        }
+
+
     }
 
     bool vulkan_api::isDeviceSuitable(VkPhysicalDevice device){
@@ -872,5 +986,36 @@ namespace graphics_api{
         }
 
         return shaderModule;
+    }
+
+    std::vector<char> vulkan_api::readFile(const std::string& filename){
+        std::ifstream file(filename, std::ios::ate | std::ios::binary);
+
+        if (!file.is_open()) {
+            throw std::runtime_error("failed to open file!");
+        }
+
+        size_t fileSize = (size_t) file.tellg();
+        std::vector<char> buffer(fileSize);
+
+        file.seekg(0);
+        file.read(buffer.data(), fileSize);
+
+        file.close();
+
+        return buffer;
+    }
+    VKAPI_ATTR VkBool32 VKAPI_CALL vulkan_api::debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData) {
+        std::cerr << "validation layer: " << pCallbackData->pMessage << std::endl;
+        return VK_FALSE;
+    }
+    VkResult vulkan_api::CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger) {
+        auto func = (PFN_vkCreateDebugUtilsMessengerEXT) vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
+        if(func != nullptr) return func(instance, pCreateInfo, pAllocator, pDebugMessenger);
+        else return VK_ERROR_EXTENSION_NOT_PRESENT;
+    }
+    void vulkan_api::DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger, const VkAllocationCallbacks* pAllocator) {
+        auto func = (PFN_vkDestroyDebugUtilsMessengerEXT) vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
+        if (func != nullptr) func(instance, debugMessenger, pAllocator);
     }
 }
