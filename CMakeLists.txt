@@ -38,4 +38,7 @@ if(NOT glm_POPULATED)
     add_subdirectory(${glm_SOURCE_DIR} ${glm_BINARY_DIR})
 endif()
 
+include_directories(C:/stb)
+link_directories(C:/stb)
+
 target_link_libraries(${PROJECT_NAME} glfw glm Vulkan::Vulkan )

@@ -40,6 +40,7 @@ namespace graphics_api{
     struct Vertex{
         glm::vec2 pos;
         glm::vec3 color;
+        glm::vec2 texCoord;
 
         static VkVertexInputBindingDescription getBindingDescription(){
             VkVertexInputBindingDescription bindingDescription{};
@@ -48,16 +49,22 @@ namespace graphics_api{
             bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
             return bindingDescription;
         };
-        static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescription(){
-            std::array<VkVertexInputAttributeDescription,2> attributeDescription{};
+        static std::array<VkVertexInputAttributeDescription, 3> getAttributeDescription(){
+            std::array<VkVertexInputAttributeDescription,3> attributeDescription{};
             attributeDescription[0].binding = 0;
             attributeDescription[0].location = 0;
             attributeDescription[0].format = VK_FORMAT_R32G32_SFLOAT;
             attributeDescription[0].offset = offsetof(Vertex, pos);
+
             attributeDescription[1].binding = 0;
             attributeDescription[1].location = 1;
             attributeDescription[1].format = VK_FORMAT_R32G32B32_SFLOAT;
             attributeDescription[1].offset = offsetof(Vertex,color);
+
+            attributeDescription[2].binding = 0;
+            attributeDescription[2].location = 2;
+            attributeDescription[2].format = VK_FORMAT_R32G32_SFLOAT;
+            attributeDescription[2].offset = offsetof(Vertex,texCoord);
             return attributeDescription;
         }
     };
@@ -68,10 +75,10 @@ namespace graphics_api{
     };
 
     const std::vector<Vertex> vertices = {
-            {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-            {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
-            {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
-            {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}}
+            {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
+            {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+            {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+            {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}}
     };
     const std::vector<uint16_t> indices = {
             0, 1, 2, 2, 3, 0
@@ -110,6 +117,13 @@ namespace graphics_api{
         void updateUniformBuffer(uint32_t currentImage);
         void createDescriptorPool();
         void createDescriptorSets();
+        void createTextureImage();
+        void createImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory);
+        void endSingleTimeCommands(VkCommandBuffer commandBuffer);
+        void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
+        void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
+        void createTextureImageView();
+        void createTextureSampler();
 
         bool isDeviceSuitable(VkPhysicalDevice device);
         bool checkDeviceExtensionSupport(VkPhysicalDevice device);
@@ -126,6 +140,8 @@ namespace graphics_api{
         VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes);
         VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities);
         VkShaderModule createShaderModule(const std::vector<char>& code);
+        VkCommandBuffer beginSingleTimeCommands();
+        VkImageView createImageView(VkImage image, VkFormat format);
 
         static std::vector<char> readFile(const std::string& filename);
         static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData);
@@ -152,6 +168,10 @@ namespace graphics_api{
         VkDeviceMemory indexBufferMemory;
         VkDescriptorSetLayout descriptorSetLayout;
         VkDescriptorPool descriptorPool;
+        VkImage textureImage;
+        VkDeviceMemory textureImageMemory;
+        VkImageView textureImageView;
+        VkSampler textureSampler;
 
         std::vector<VkDescriptorSet> descriptorSets;
         std::vector<void*> uniformBuffersMapped;
