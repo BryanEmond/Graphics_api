@@ -38,7 +38,7 @@ namespace graphics_api{
         std::vector<VkPresentModeKHR> presentModes;
     };
     struct Vertex{
-        glm::vec2 pos;
+        glm::vec3 pos;
         glm::vec3 color;
         glm::vec2 texCoord;
 
@@ -53,7 +53,7 @@ namespace graphics_api{
             std::array<VkVertexInputAttributeDescription,3> attributeDescription{};
             attributeDescription[0].binding = 0;
             attributeDescription[0].location = 0;
-            attributeDescription[0].format = VK_FORMAT_R32G32_SFLOAT;
+            attributeDescription[0].format = VK_FORMAT_R32G32B32_SFLOAT;
             attributeDescription[0].offset = offsetof(Vertex, pos);
 
             attributeDescription[1].binding = 0;
@@ -75,13 +75,20 @@ namespace graphics_api{
     };
 
     const std::vector<Vertex> vertices = {
-            {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
-            {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-            {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
-            {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}}
+            {{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
+            {{0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
+            {{0.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
+            {{-0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
+
+            {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
+            {{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
+            {{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
+            {{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}}
     };
+
     const std::vector<uint16_t> indices = {
-            0, 1, 2, 2, 3, 0
+            0, 1, 2, 2, 3, 0,
+            4, 5, 6, 6, 7, 4
     };
     class vulkan_api : public graphics_api {
     public:
@@ -124,10 +131,12 @@ namespace graphics_api{
         void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
         void createTextureImageView();
         void createTextureSampler();
+        void createDepthResources();
 
         bool isDeviceSuitable(VkPhysicalDevice device);
         bool checkDeviceExtensionSupport(VkPhysicalDevice device);
         bool checkValidationLayerSupport();
+        bool hasStencilComponent(VkFormat format);
 
         uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
 
@@ -141,7 +150,9 @@ namespace graphics_api{
         VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities);
         VkShaderModule createShaderModule(const std::vector<char>& code);
         VkCommandBuffer beginSingleTimeCommands();
-        VkImageView createImageView(VkImage image, VkFormat format);
+        VkImageView createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags);
+        VkFormat findSupportedFormat(const std::vector<VkFormat>& candidates,VkImageTiling tiling, VkFormatFeatureFlags feature);
+        VkFormat findDepthFormat();
 
         static std::vector<char> readFile(const std::string& filename);
         static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData);
@@ -172,6 +183,9 @@ namespace graphics_api{
         VkDeviceMemory textureImageMemory;
         VkImageView textureImageView;
         VkSampler textureSampler;
+        VkImage depthImage;
+        VkDeviceMemory depthImageMemory;
+        VkImageView  depthImageView;
 
         std::vector<VkDescriptorSet> descriptorSets;
         std::vector<void*> uniformBuffersMapped;
